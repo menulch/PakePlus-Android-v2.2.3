@@ -1,11 +1,294 @@
 <!DOCTYPE html>
-<html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>PakePlus</title>
-    </head>
-    <body>
-        PakePlus
-    </body>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>学生作业登记统计表</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:"Microsoft YaHei",sans-serif;font-size:13px;background:#f0f4f8;padding:15px;}
+.container{max-width:100%;margin:0 auto;background:#ffffff;border-radius:16px;box-shadow:0 4px 20px rgba(0,0,0,0.08);padding:20px;}
+h2{text-align:center;color:#2c3e50;margin-bottom:20px;font-size:22px;}
+
+.tool-bar{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:15px;padding-bottom:15px;border-bottom:1px solid #eee;}
+.tool-title{font-size:15px;font-weight:bold;color:#34495e;}
+.tool{width:44px;height:44px;line-height:44px;text-align:center;border-radius:8px;cursor:pointer;font-size:20px;background:#f5f7fa;border:2px solid transparent;transition:all 0.2s;}
+.tool.active{background:#409eff;color:#fff;border-color:#409eff;transform:scale(1.05);}
+
+.btn-group{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:15px;}
+.btn{padding:8px 16px;border:none;border-radius:8px;cursor:pointer;font-size:13px;transition:all 0.2s;}
+.btn-blue{background:#409eff;color:#fff;}
+.btn-blue:hover{background:#337ecc;}
+.btn-green{background:#67c23a;color:#fff;}
+.btn-green:hover{background:#529b2e;}
+.btn-red{background:#f56c6c;color:#fff;}
+.btn-red:hover{background:#dd6161;}
+.btn-orange{background:#ff9500;color:#fff;}
+.btn-orange:hover{background:#e68900;}
+.btn-purple{background:#9368e9;color:#fff;}
+.btn-purple:hover{background:#7e57d1;}
+.btn-teal{background:#20c997;color:#fff;}
+.btn-teal:hover{background:#17a886;}
+
+.table-wrap{width:100%;overflow-x:auto;}
+table{border-collapse:collapse;width:100%;}
+th,td{border:1px solid #ebeef5;padding:6px 4px;text-align:center;}
+th{background:#f5f7fa;color:#606266;font-weight:600;font-size:12px;}
+.id-col{background:#f0f7ff;font-weight:bold;width:60px;}
+.name-col{background:#ecf5ff;font-weight:bold;color:#2c3e50;width:80px;}
+.date-check{width:16px;height:16px;cursor:pointer;}
+.cell{width:32px;height:32px;line-height:32px;border:1px solid #dcdfe6;border-radius:4px;cursor:pointer;display:inline-block;font-size:16px;background:#fff;transition:all 0.2s;}
+.cell:hover{background:#f0f7ff;border-color:#409eff;}
+</style>
+</head>
+<body>
+<div class="container">
+    <h2>学生作业登记统计表</h2>
+
+    <div class="tool-bar">
+        <span class="tool-title">选择标记工具：</span>
+        <div class="tool" data-mark="⭐">⭐</div>
+        <div class="tool" data-mark="▲">▲</div>
+        <div class="tool" data-mark="●">●</div>
+        <div class="tool" data-mark="✗">✗</div>
+        <div class="tool" data-mark="">清空</div>
+    </div>
+
+    <div class="btn-group">
+        <button class="btn btn-blue" onclick="addDate()">➕ 添加日期列</button>
+        <button class="btn btn-orange" onclick="delCheckedCol()">🗑️ 删除选中列</button>
+        <button class="btn btn-purple" onclick="resetCheckedCol()">🔄 重置选中列</button>
+        <button class="btn btn-teal" onclick="fillRemainStar()">其余空白一键填⭐</button>
+        <button class="btn btn-teal" onclick="fillRemainTriangle()">其余空白一键填▲</button>
+        <button class="btn btn-green" onclick="exportExcel()">📤 导出Excel</button>
+        <button class="btn btn-red" onclick="resetAll()">🔄 重置全部记录</button>
+    </div>
+
+    <div class="table-wrap">
+        <table id="tab">
+            <thead id="thead"></thead>
+            <tbody id="tbody"></tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+const stuList = [
+"蔡雨潼","曾梓晴","陈文皓","陈夏沛","程钟仪","邓传鹏","丁姝晗","冯金桂",
+"关诗荧","何思莹","何泽锦","何紫汐","黄世杰","黄彦晞","黄语涵","黄仲骞",
+"金惟明","赖博霖","李思宇","李泽升","马佳为","马佳因","麦允晴","莫观铭",
+"卿沐锋","谭知行","温妤诺","吴俊德","吴婉瑄","吴泽锴","谢子开","谢梓钧",
+"熊晨睿","张一漫","邹展埼"
+];
+
+const stuIdList = stuList.map((_, idx) => String(idx + 1).padStart(2, '0'));
+
+let nowMark = "⭐";
+let dateArr = JSON.parse(localStorage.getItem("dateArr")) || [];
+let record = JSON.parse(localStorage.getItem("homeworkRecord")) || {};
+
+document.querySelectorAll(".tool").forEach(el => {
+    el.onclick = function () {
+        document.querySelectorAll(".tool").forEach(e => e.classList.remove("active"));
+        this.classList.add("active");
+        nowMark = this.dataset.mark;
+    }
+});
+document.querySelector(".tool").classList.add("active");
+
+function renderTable() {
+    let headHtml = "<tr><th class='id-col'>学号</th><th class='name-col'>学生姓名</th>";
+    for (let d of dateArr) {
+        headHtml += `<th><input type="checkbox" class="date-check" data-date="${d}"><br>${d}</th>`;
+    }
+    headHtml += "<th>优秀⭐</th><th>订正▲</th><th>未完成●</th><th>未带✗</th></tr>";
+    document.getElementById("thead").innerHTML = headHtml;
+
+    let bodyHtml = "";
+    for (let i = 0; i < stuList.length; i++) {
+        let name = stuList[i];
+        let id = stuIdList[i];
+        bodyHtml += "<tr>";
+        bodyHtml += "<td class='id-col'>" + id + "</td>";
+        bodyHtml += "<td class='name-col'>" + name + "</td>";
+
+        for (let d of dateArr) {
+            let val = "";
+            if (record[name] && record[name][d]) {
+                val = record[name][d];
+            }
+            bodyHtml += `<td><div class="cell" onclick="setMark('${name}','${d}')">${val}</div></td>`;
+        }
+
+        let s = countStat(name);
+        bodyHtml += `<td>${s.star}</td><td>${s.tri}</td><td>${s.cir}</td><td>${s.cro}</td>`;
+        bodyHtml += "</tr>";
+    }
+    document.getElementById("tbody").innerHTML = bodyHtml;
+}
+
+function setMark(name, date) {
+    if (!record[name]) record[name] = {};
+    record[name][date] = nowMark;
+    saveData();
+    renderTable();
+}
+
+function countStat(name) {
+    let star = 0, tri = 0, cir = 0, cro = 0;
+    if (!record[name]) return { star, tri, cir, cro };
+    let arr = Object.values(record[name]);
+    for (let v of arr) {
+        if (v === "⭐") star++;
+        if (v === "▲") tri++;
+        if (v === "●") cir++;
+        if (v === "✗") cro++;
+    }
+    return { star, tri, cir, cro };
+}
+
+function saveData() {
+    localStorage.setItem("dateArr", JSON.stringify(dateArr));
+    localStorage.setItem("homeworkRecord", JSON.stringify(record));
+}
+
+function addDate() {
+    let d = prompt("请输入日期（示例：5月9日）");
+    if (!d) return;
+    d = d.trim();
+    if (!dateArr.includes(d)) {
+        dateArr.push(d);
+        saveData();
+        renderTable();
+    }
+}
+
+function getCheckedDates(){
+    let checks = document.querySelectorAll(".date-check:checked");
+    let list = [];
+    checks.forEach(cb=>{
+        list.push(cb.dataset.date);
+    });
+    return list;
+}
+
+// 删除选中列
+function delCheckedCol(){
+    let checkList = getCheckedDates();
+    if(checkList.length === 0){
+        alert("请先勾选要删除的日期列！");
+        return;
+    }
+    if(!confirm("确定要删除选中的日期列及所有记录吗？")) return;
+    dateArr = dateArr.filter(d=>!checkList.includes(d));
+    for(let name of stuList){
+        if(!record[name]) continue;
+        checkList.forEach(d=>{
+            delete record[name][d];
+        });
+    }
+    saveData();
+    renderTable();
+    alert("已删除选中列");
+}
+
+// 重置选中列清空标记
+function resetCheckedCol(){
+    let checkList = getCheckedDates();
+    if(checkList.length === 0){
+        alert("请先勾选要重置的日期列！");
+        return;
+    }
+    if(!confirm("确定要清空选中列所有学生的作业标记吗？")) return;
+    for(let name of stuList){
+        if(!record[name]) record[name] = {};
+        checkList.forEach(d=>{
+            record[name][d] = "";
+        });
+    }
+    saveData();
+    renderTable();
+    alert("已重置选中列");
+}
+
+// 功能1：选中列 空白格子全部填星星，已有符号保留
+function fillRemainStar(){
+    let checkList = getCheckedDates();
+    if(checkList.length === 0){
+        alert("请先勾选要批量填充的日期列！");
+        return;
+    }
+    if(!confirm("确定把选中列所有空白格子一键填为⭐？已有标记不变")) return;
+
+    checkList.forEach(date=>{
+        stuList.forEach(name=>{
+            if(!record[name]) record[name] = {};
+            // 为空才填星星，已有⭐ ▲ ● ✗ 都保留
+            if(!record[name][date]){
+                record[name][date] = "⭐";
+            }
+        });
+    });
+    saveData();
+    renderTable();
+    alert("已完成：空白全部填充⭐，原有标记保留");
+}
+
+// 功能2：选中列 空白格子全部填三角形，已有符号保留
+function fillRemainTriangle(){
+    let checkList = getCheckedDates();
+    if(checkList.length === 0){
+        alert("请先勾选要批量填充的日期列！");
+        return;
+    }
+    if(!confirm("确定把选中列所有空白格子一键填为▲？已有标记不变")) return;
+
+    checkList.forEach(date=>{
+        stuList.forEach(name=>{
+            if(!record[name]) record[name] = {};
+            // 为空才填三角，已有符号保留
+            if(!record[name][date]){
+                record[name][date] = "▲";
+            }
+        });
+    });
+    saveData();
+    renderTable();
+    alert("已完成：空白全部填充▲，原有标记保留");
+}
+
+function resetAll() {
+    if (confirm("确定清空所有作业登记记录？学生姓名和日期列保留！")) {
+        record = {};
+        saveData();
+        renderTable();
+    }
+}
+
+function exportExcel() {
+    let excelData = [];
+    let header = ["学号","学生姓名",...dateArr,"优秀次数","订正次数","未完成次数","未带次数"];
+    excelData.push(header);
+
+    for (let i = 0; i < stuList.length; i++) {
+        let name = stuList[i];
+        let row = [stuIdList[i], name];
+        for (let d of dateArr) {
+            row.push(record[name]?.[d] || "");
+        }
+        let s = countStat(name);
+        row.push(s.star, s.tri, s.cir, s.cro);
+        excelData.push(row);
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet(excelData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "作业登记记录");
+    XLSX.writeFile(wb, "学生作业登记记录表.xlsx");
+}
+
+renderTable();
+</script>
+</body>
 </html>
